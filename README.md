@@ -9,7 +9,7 @@
 | 항목 | 내용 |
 |------|------|
 | **역할** | 프론트엔드(React Native) 기능 구현, UI/UX 개선, 소셜 로그인·피드·댓글 등 핵심 사용자 플로우 전담 |
-| **환경** | [upstream `develop` — `package.json` · `app.json`](https://github.com/BETA-BasEball-Together-Always/BETA-Client/tree/develop) 기준.<br><br>**런타임·빌드** — Expo SDK **54**, React **19.1**, React Native **0.81**, **New Architecture** (`newArchEnabled`), **`expo-dev-client`**, **EAS Update** (`expo-updates`, `runtimeVersion` 정책: `appVersion`).<br><br>**앱 설정** — 화면 **portrait**, iOS **Sign in with Apple**, Android **edge-to-edge**, 앱 ID **`com.beta.baseballapp`**. Web 번들러는 **Metro**.<br><br>**코어 라이브러리** — TanStack Query 5, Zustand 5, React Navigation 7, NativeWind 4 + Tailwind 3, Axios.<br><br>**네이티브·주요 모듈** — Firebase(App·FCM 푸시), Vision Camera, Reanimated, Gesture Handler, Share, View Shot, NetInfo; Expo(Apple 로그인, 이미지 피커·조작, 스플래시, SecureStore, 미디어 라이브러리 등); Kakao/Naver 소셜 로그인 패키지 및 config plugin. |
+| **환경** | **런타임·빌드** — Expo SDK **54**, React **19.1**, React Native **0.81**, **New Architecture** (`newArchEnabled`), **`expo-dev-client`**, **EAS Update** (`expo-updates`, `runtimeVersion` 정책: `appVersion`).<br><br>**앱 설정** — 화면 **portrait**, iOS **Sign in with Apple**, Android **edge-to-edge**, 앱 ID **`com.beta.baseballapp`**. Web 번들러는 **Metro**.<br><br>**코어 라이브러리** — TanStack Query 5, Zustand 5, React Navigation 7, NativeWind 4 + Tailwind 3, Axios.<br><br>**네이티브·주요 모듈** — Firebase(App·FCM 푸시), Vision Camera, Reanimated, Gesture Handler, Share, View Shot, NetInfo; Expo(Apple 로그인, 이미지 피커·조작, 스플래시, SecureStore, 미디어 라이브러리 등); Kakao/Naver 소셜 로그인 패키지 및 config plugin. |
 | **협업** | upstream 저장소의 팀 작업과 병행; 검색 등 일부 영역은 다른 기여자와 PR 머지로 통합 |
 
 ---

@@ -1,108 +1,171 @@
-## 📝 Introduction
+# BETA Client
 
-**BETA-Client**는 BETA 서비스의 **사용자용 모바일 앱(React Native)** 클라이언트입니다.
+본 저장소는 [BETA-BasEball-Together-Always/BETA-Client](https://github.com/BETA-BasEball-Together-Always/BETA-Client)를 포크하여 작업한 **BETA Client 개인 레포지토리**입니다. 아래는 **본인(Khaneul1)이 프로젝트에 기여한 커밋 히스토리**와 **담당·구현 범위**를 바탕으로 정리한 문서입니다.
 
-- Expo 기반으로 개발/빌드되며, `expo-dev-client`를 사용해 네이티브 모듈(Firebase, Vision Camera, 소셜 로그인 등)을 포함한 개발 흐름을 지원합니다.
-- 화면 전환은 React Navigation으로 구성되어 있고, 서버 상태는 TanStack Query, 앱 상태는 Zustand를 중심으로 관리합니다.
-- API Base URL 및 소셜 로그인 설정은 **환경변수 → `app.config.js`의 `expo.extra`**로 주입됩니다.
+---
 
+## 1. 프로젝트 개요
 
-## 🛠️ Tech Stack
+| 항목 | 내용 |
+|------|------|
+| **역할** | 프론트엔드(React Native) 기능 구현, UI/UX 개선, 소셜 로그인·피드·댓글 등 핵심 사용자 플로우 전담 |
+| **환경** | Expo SDK 54, `expo-dev-client`, TanStack Query, Zustand, React Navigation, NativeWind 등 |
+| **협업** | upstream 저장소의 팀 작업과 병행; 검색 등 일부 영역은 다른 기여자와 PR 머지로 통합 |
 
-| Category | Stack |
-| --- | --- |
-| **Core** | <img src="https://img.shields.io/badge/React_Native-0.81-61DAFB?style=flat-square&logo=react&logoColor=white" alt="React Native" /> <img src="https://img.shields.io/badge/Expo-SDK_54-000020?style=flat-square&logo=expo&logoColor=white" alt="Expo" /> <img src="https://img.shields.io/badge/Expo_Updates-OTA-000020?style=flat-square&logo=expo&logoColor=white" alt="Expo Updates" /> |
-| **Navigation / State** | <img src="https://img.shields.io/badge/React_Navigation-v7-6B52AE?style=flat-square" alt="React Navigation" /> <img src="https://img.shields.io/badge/TanStack_Query-v5-FF4154?style=flat-square&logo=reactquery&logoColor=white" alt="TanStack Query" /> <img src="https://img.shields.io/badge/Zustand-000000?style=flat-square" alt="Zustand" /> |
-| **Styling** | <img src="https://img.shields.io/badge/NativeWind-Tailwind-38B2AC?style=flat-square&logo=tailwindcss&logoColor=white" alt="NativeWind" /> |
-| **Networking** | <img src="https://img.shields.io/badge/Axios-5A29E4?style=flat-square&logo=axios&logoColor=white" alt="Axios" /> <img src="https://img.shields.io/badge/NetInfo-Connectivity-6C757D?style=flat-square" alt="NetInfo" /> |
-| **Push / Native** | <img src="https://img.shields.io/badge/Firebase-Cloud_Messaging-FFCA28?style=flat-square&logo=firebase&logoColor=black" alt="FCM" /> <img src="https://img.shields.io/badge/Vision_Camera-4.7-111827?style=flat-square" alt="Vision Camera" /> |
-| **Social Login** | <img src="https://img.shields.io/badge/Kakao_Login-FFCD00?style=flat-square" alt="Kakao" /> <img src="https://img.shields.io/badge/Naver_Login-03C75A?style=flat-square" alt="Naver" /> <img src="https://img.shields.io/badge/Apple_Sign--In-000000?style=flat-square&logo=apple&logoColor=white" alt="Apple" /> |
+---
 
+## 2. 신규 구현 및 전담 기능
 
-## 🧩 Project Structure
+아래는 **처음부터 설계·구현에 참여했거나 화면·도메인을 주도한 영역**입니다.
 
-주요 디렉터리는 아래 구조로 관리합니다.
+### 2.1 애플 로그인
 
-| Path | Description |
-| --- | --- |
-| `src/app/` | 앱 엔트리, Provider 구성, 네비게이션 루트 |
-| `src/features/` | 도메인/화면 단위 기능 모듈 (auth, home, community, search, profile, photoBooth 등) |
-| `src/shared/` | 공통 컴포넌트/유틸/스토어/서비스(API, 세션, 푸시 등) |
-| `assets/` | 앱 아이콘/스플래시 등 정적 리소스 |
+- **내용**: `expo-apple-authentication` 기반 iOS 애플 로그인 플로우를 앱 인증 스택에 통합.
+- **포인트**: 네이티브 모듈이 포함된 dev-client 빌드와의 호환, 토큰·세션 처리 시 기존 이메일/소셜 계정과의 정합성.
 
+### 2.2 홈 화면 및 전체/팀 게시판
 
-## 🏛️ Architecture
+- **내용**: 메인 탭의 홈·팀별 피드 진입, 리스트·썸네일·팀 라벨 표시.
+- **후속 QA**(커밋 기준): 팀 라벨 `lineHeight`·색상 조정, 상단 바·헤더 간격, 인기 피드 썸네일에 **등록 이미지 개수 배지** 배치, 예외 처리·로딩 동작 정리.
 
-### App Bootstrap Flow
+### 2.3 게시글 상세 · 감정 표현 토글 · 리액션 바
 
-앱 시작 시 세션을 준비한 뒤, 스플래시 종료 시점에 `Auth` 또는 `Main`으로 분기합니다.
+- **내용**: 상세 화면에서 감정(리액션) 토글, 하단/고정 영역의 인터랙션 UI.
+- **후속 QA**: 좋아요/감정 취소 시 **느리게 반영되던 UI** 개선, 실시간 동기화 이슈(아래 3.2 참고).
 
-```mermaid
-flowchart TD
-  A[App 시작] --> B[bootstrapSession]
-  B --> C[SplashScreen]
-  C -->|exit complete| D{destination}
-  D -->|main| E[MainTabNavigator]
-  D -->|auth| F[AuthStack]
-```
+### 2.4 댓글 등록·수정·삭제 및 좋아요 토글
 
+- **내용**: 댓글·답글 CRUD, 좋아요 토글, 리스트와 입력창 연동.
+- **후속 QA**: 댓글 `lineHeight`, 입력창 포커스 시 **과도한 자동 스크롤** 완화, 키보드·인풋 높이에 맞춘 **하단 스크롤**, 등록 버튼이 키보드 포커스 시 사라지지 않도록 처리.
 
-### API Base URL Resolution
+### 2.5 게시글 작성 페이지
 
-API baseURL은 TestFlight/런타임 환경 차이를 고려해 아래 우선순위로 결정됩니다.
+- **내용**: 본문·이미지·팀 라벨 등 작성 플로우.
+- **후속 QA**: 작성 화면에서 **팀 라벨 색상 미적용** 수정, 해시태그·본문 중간 삽입·수정 시 **태그 누락/중복 등록** 문제 해결.
 
-1) `Constants.expoConfig.extra.backendUrl` (권장)  
-2) `process.env.EXPO_PUBLIC_BACKEND_URL`  
-3) fallback: `https://beta-app.kr`
+### 2.6 마이페이지 · 프로필 설정 · 타 유저 프로필
 
-관련 구현은 `src/shared/libs/api.js`에서 관리합니다.
+- **내용**: 내 정보·설정, 타인 프로필 조회 등 프로필 도메인 화면.
 
-<br>
+### 2.7 회원가입 완료 페이지
 
-## ▶️ Getting Started
+- **내용**: 가입 플로우 마지막 단계의 완료 UI 및 상태 처리.
 
-### Install
+---
+
+## 3. 기존 코드 수정·최적화 및 QA 대응
+
+upstream에 이미 존재하던 모듈을 **기능 보강·버그 수정·UX 통일**한 범위입니다.  
+(일부는 커밋 메시지에 `QA Section`, `feat`, `chore` 등으로 구분되어 있습니다.)
+
+### 3.1 야구네컷(프레임 선택·편집·공유)
+
+- **이미지 슬롯·데이터 구조**: 슬롯 리스트와 프레임 내부 이미지 로직 정리, **덮어쓰기·이전 이미지 잔존** 문제 해결.
+- **SelectScreen**: 포커스 시 **이전에 선택했던 구단·프레임 초기화**로 혼선 방지.
+- **ShareScreen**: 닫기 아이콘 배치 등 UI 조정.
+- **기타**: 이미지 순서 변경 로직, 1차 스플래시 제거 등 사용 흐름 정리.
+
+### 3.2 피드·게시글 실시간 반영
+
+- 게시글 **수정/삭제**, 댓글·감정 **등록 후 목록·상세에 바로 반영**되도록 캐시/쿼리 무효화·낙관적 업데이트 등 정리.
+- **피드 동기화**, 소셜 로그인 **세션 충돌** 완화, **네트워크 오류 시 메시지·UX** 개선.
+
+### 3.3 네이버 / 카카오 로그인
+
+- 네이버 로그인 로직 수정, 소셜 로그인 **이메일 중복 시 모달** 동작 정리.
+- `.env` 도입 및 설정과의 연동(민감 정보는 저장소에 포함하지 않음).
+
+### 3.4 약관 동의 · 회원가입 단계(이메일, 닉네임, 구단, 성별/나이)
+
+- 단계별 **프로그레스 헤더** UI 통일·컴포넌트 분리.
+- 인디케이터·서브 텍스트 색상, **“사용 가능한 닉네임”** 문구 등 디테일.
+- 이탈 후 재진입 시 **이전 단계 데이터 유지** 등 플로우 안정화.
+
+### 3.5 스플래시 스크린
+
+- 노출·전환 타이밍 및 UI/UX 조정(불필요한 1차 스플래시 제거 등).
+
+### 3.6 계정 탈퇴
+
+- **30일 유예**, 재로그인 시 **철회(취소)** 가능한 정책 반영 및 UI/로직 정리.
+
+### 3.7 알림 설정(추가 기여)
+
+- **개별 알림 토글** 활성화 시 발생하던 **에러** 수정.
+- **전체 알림 토글**을 켤 때 **개별 알림 토글도 함께 켜지는** UX를 의도에 맞게 정리(원래 다른 분 작업 영역이었으나 본인이 수정).
+
+---
+
+## 4. 커밋 히스토리에서 보이는 작업 패턴 (upstream `develop` · Khaneul1)
+
+[커밋 목록(develop)](https://github.com/BETA-BasEball-Together-Always/BETA-Client/commits/develop/) 기준으로, 본인 커밋은 대략 다음 흐름으로 묶을 수 있습니다.
+
+| 시기(참고) | 주제 |
+|------------|------|
+| **2026-03 말 ~ 04-01** | 디자인 QA 반영, 피드/댓글/감정 실시간성, 소셜·네트워크 UX, 회원가입·야구네컷·스플래시·팀 라벨 등 광범위 QA |
+| **반복 키워드** | `QA Section`, 게시글/댓글/인기 피드, 해시태그·게시글 수정, 이미지 슬롯·KIA(기아) 팀 라벨 |
+
+이를 통해 **기능 추가 한 번으로 끝나지 않고**, 테스트·기획 피드백에 맞춰 **여러 라운드로 안정화**했음을 보여 줍니다.
+
+---
+
+## 5. 문제점과 해결 과정에서 배운 점
+
+### 5.1 React Native·Expo에서의 상태와 UI
+
+- **문제**: 목록·상세·댓글이 **동시에 열려 있을 때** 한쪽에서의 액션이 다른 쪽에 늦게 반영되거나, 키보드·스크롤이 겹치며 UX가 깨짐.
+- **접근**: TanStack Query의 **무효화 범위**, 화면별 `refetch` 타이밍, `Keyboard`·`FlatList` 조합을 화면별로 나누어 조정.
+- **배운 점**: “한 화면만 맞추기”가 아니라 **네비게이션 스택·탭 간 데이터 일관성**을 설계 단계에서 고려해야 함.
+
+### 5.2 소셜 로그인·세션
+
+- **문제**: 이메일 중복, 로그아웃 충돌, provider별 토큰 처리 차이.
+- **접근**: 모달 분기·에러 메시지 명확화, 세션 스토어와 API 응답 코드 매핑 정리.
+- **배운 점**: OAuth는 **해피 패스**만 구현하면 안 되고, **엣지 케이스·중복 계정**을 제품 요구사항과 함께 정의해야 함.
+
+### 5.3 이미지·슬롯·네이티브에 가까운 UX(야구네컷)
+
+- **문제**: 덮어쓰기, 잔상, 포커스 시 이전 선택값 잔존 등 **상태 머신**이 복잡한 버그.
+- **접근**: 데이터 구조를 단순화하고, 화면 진입·포커스 시 **초기화 조건**을 명시적으로 분리.
+- **배운 점**: 미디어 편집류는 **“화면 상태 = 사용자가 인지하는 상태”**와 일치시키는 것이 핵심.
+
+### 5.4 푸시·알림 토글
+
+- **문제**: 개별 토글 시 에러, 전체/개별 연동 UX 불일치.
+- **접근**: 토글 간 의존 관계(전체 ON → 개별 동기화 등)를 **사용자 기대**에 맞게 정리하고 API/로컬 상태를 맞춤.
+- **배운 점**: 남이 만든 기능도 **사용자 관점에서 깨지면** 도메인 이해 후 안전하게 수정 가능.
+
+---
+
+## 6. 성찰
+
+- **범위가 큰 앱**에서 한 사람이 **인증·피드·댓글·프로필·온보딩·카메라/공유**까지 맡으면, 기술 스택뿐 아니라 **제품 흐름 전체를 읽는 능력**이 요구됨을 느꼈습니다.
+- 커밋 로그에 남은 **QA 라운드**는, 초기 구현력과 별개로 **끝까지 품질을 맞추는 집요함**의 증거라고 생각합니다.
+- 앞으로는 **E2E·회귀 테스트**, **성능(리스트 가상화·이미지)** 등 자동화와 측정 영역을 보강하고 싶습니다.
+
+---
+
+## 7. 실행 방법 (참고)
+
+upstream README와 동일하게, 의존성 설치 후 Expo/ dev-client로 실행합니다.
 
 ```bash
 npm install
-```
-
-### Run (Expo)
-
-```bash
 npm run start
-```
-
-### Run (Dev Client)
-
-네이티브 모듈이 포함되어 있으므로, 디바이스/시뮬레이터에서 dev-client로 실행합니다.
-
-```bash
+# 네이티브 모듈 포함 시
 npm run ios
 npm run android
 ```
 
+환경 변수·백엔드 URL은 `app.config.js`의 `expo.extra` 및 `.env`(로컬, 저장소 미포함)를 참고합니다.
 
-## 🚀 Build & Release (EAS)
+---
 
-본 프로젝트는 `eas.json` 기준으로 `development / preview / production` 프로파일을 운영합니다.
+## 8. 링크
 
-| Profile | Purpose | Channel |
-| --- | --- | --- |
-| `development` | 내부 개발 빌드 (dev-client) | `development` |
-| `preview` | QA/검증용 내부 배포 | `preview` |
-| `production` | 프로덕션 배포 | `production` |
+- **Upstream**: [github.com/BETA-BasEball-Together-Always/BETA-Client](https://github.com/BETA-BasEball-Together-Always/BETA-Client)
+- **커밋 히스토리(develop)**: [commits/develop](https://github.com/BETA-BasEball-Together-Always/BETA-Client/commits/develop/)
 
-예시:
+---
 
-```bash
-eas build --profile development --platform ios
-eas build --profile preview --platform android
-eas build --profile production --platform ios
-```
-
-
-## 📌 Notes
-
-- iOS Push/FCM 관련해서 `aps-environment` 값은 `EAS_BUILD_PROFILE`에 따라 자동 설정되며, 네이티브 설정 변경이 필요한 경우 prebuild 후 재빌드가 필요합니다. (`app.config.js` 참고)
-
+*본 문서는 포트폴리오 목적으로 작성되었으며, 팀 전체 기여와 구분하여 본인이 주도하거나 수정한 범위를 중심으로 서술했습니다.*

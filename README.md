@@ -168,27 +168,11 @@ upstream에 이미 존재하던 모듈을 **기능 보강·버그 수정·UX 통
 
 - **범위가 큰 앱**에서 한 사람이 **인증·피드·댓글·프로필·온보딩·카메라/공유**까지 맡으면, 기술 스택뿐 아니라 **제품 흐름 전체를 읽는 능력**이 요구됨을 느꼈습니다.
 - 커밋 로그에 남은 **QA 라운드**는, 초기 구현력과 별개로 **끝까지 품질을 맞추는 집요함**의 증거라고 생각합니다.
-- 앞으로는 **E2E·회귀 테스트**, **성능(리스트 가상화·이미지)** 등 자동화와 측정 영역을 보강하고 싶습니다.
+- 앞으로는 **E2E·회귀 테스트**, **성능(리스트 가상화·이미지)** 등 **자동화와 측정**을 보강하고 싶고, 코드베이스는 **TypeScript로의 점진적 전환**을 통해 API·네비게이션 파라미터·도메인 모델의 **타입 안전성**을 높이고 싶습니다.
 
 ---
 
-## 7. 실행 방법 (참고)
-
-upstream README와 동일하게, 의존성 설치 후 Expo/ dev-client로 실행합니다.
-
-```bash
-npm install
-npm run start
-# 네이티브 모듈 포함 시
-npm run ios
-npm run android
-```
-
-환경 변수·백엔드 URL은 `app.config.js`의 `expo.extra` 및 `.env`(로컬, 저장소 미포함)를 참고합니다.
-
----
-
-## 8. 링크
+## 6. 링크
 
 - **Upstream**: [github.com/BETA-BasEball-Together-Always/BETA-Client](https://github.com/BETA-BasEball-Together-Always/BETA-Client)
 - **커밋 히스토리(develop)**: [commits/develop](https://github.com/BETA-BasEball-Together-Always/BETA-Client/commits/develop/)

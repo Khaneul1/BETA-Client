@@ -1,5 +1,12 @@
 // src/features/auth/screens/SignupGenderAge/SignupGenderAgeScreen.jsx
-import React, { useState, useMemo, useEffect } from "react";
+import React, {
+  useState,
+  useMemo,
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+} from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   StyleSheet,
@@ -10,20 +17,25 @@ import {
   Keyboard,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import AuthBackground from "../../components/AuthBackground";
 import SignupProgressHeader from "../../components/SignupProgressHeader";
 import { useSignupCompleteMutation } from "../../services/signupCompleteMutation";
+import { useSignupStatusMutation } from "../../services/signupStatusMutation";
 import { useStepBack } from "../../hooks/useStepBack";
 
 import { AppText } from "../../../../shared/theme/components/AppText";
 import { useUserStore } from "../../../../shared/store/userStore";
 import api from "../../../../shared/libs/api";
 import { useSignupDraftStore } from "../../stores/useSignupDraftStore";
+import { useSignupDraftPersistHydrated } from "../../hooks/useSignupDraftPersistHydrated";
+import { applySignupStatusToDraft } from "../../../../shared/auth/applySignupStatusToDraft";
+import { navigateFromSignupStatus } from "../../../../shared/auth/navigateFromSignupStatus";
 
-const SignupGenderAgeScreen = ({ navigation, route }) => {
+function SignupGenderAgeScreenBody({ navigation, route }) {
   const draftGender = useSignupDraftStore((s) => s.gender);
   const draftAge = useSignupDraftStore((s) => s.age);
   const setDraftGender = useSignupDraftStore((s) => s.setGender);
@@ -35,17 +47,65 @@ const SignupGenderAgeScreen = ({ navigation, route }) => {
 
   const handleBack = useStepBack("SignupFavoriteTeam");
 
+  const restoreGenderAgeFromDraft = useCallback(() => {
+    const d = useSignupDraftStore.getState();
+    const draftG = d.gender ?? null;
+    const draftAgeRaw =
+      typeof d.age === "string" ? d.age : d.age != null ? String(d.age) : "";
+    const draftAgeTrim = draftAgeRaw.trim();
+
+    setGender((prev) => (draftG != null ? draftG : prev));
+    setAge((prev) => {
+      const prevStr = typeof prev === "string" ? prev : "";
+      if (draftAgeTrim) return draftAgeRaw;
+      return prevStr.trim() ? prevStr : "";
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    restoreGenderAgeFromDraft();
+  }, [restoreGenderAgeFromDraft]);
+
+  useFocusEffect(
+    useCallback(() => {
+      restoreGenderAgeFromDraft();
+    }, [restoreGenderAgeFromDraft]),
+  );
+
+  useEffect(() => {
+    restoreGenderAgeFromDraft();
+  }, [draftGender, draftAge, restoreGenderAgeFromDraft]);
+
   const isNextEnabled = useMemo(() => {
     return !!age && Number(age) > 0;
   }, [age]);
 
-  useEffect(() => {
-    console.log("gender", gender);
-  }, [gender]);
-
   const signupCompleteMutation = useSignupCompleteMutation();
+  const signupStatusMutation = useSignupStatusMutation();
+  const isSubmitPending = signupCompleteMutation.isPending;
   const setUser = useUserStore((state) => state.setUser);
   const setTokens = useUserStore((state) => state.setTokens);
+  const setDraftSignupStep = useSignupDraftStore((s) => s.setSignupStep);
+
+  function isSignupStepMismatchError(error) {
+    const raw = error?.response?.data;
+    const code =
+      raw?.code ?? raw?.errorCode ?? raw?.errCode ?? raw?.error?.code ?? null;
+    if (code != null && String(code).trim().toUpperCase() === "USER008") {
+      return true;
+    }
+    const message =
+      typeof raw === "string"
+        ? raw
+        : typeof raw?.message === "string"
+          ? raw.message
+          : typeof error?.message === "string"
+            ? error.message
+            : "";
+    return (
+      typeof message === "string" && message.includes("잘못된 회원가입 단계")
+    );
+  }
 
   // 재진입 시 route.params.signup만 사용해 데이터 복구
   useEffect(() => {
@@ -63,6 +123,7 @@ const SignupGenderAgeScreen = ({ navigation, route }) => {
 
   // 호출 시 signupData 포함하도록 수정
   const submitSignup = ({ genderValue, ageValue }) => {
+    if (signupCompleteMutation.isPending) return;
     signupCompleteMutation.mutate(
       {
         ...(signupData || {}),
@@ -71,20 +132,7 @@ const SignupGenderAgeScreen = ({ navigation, route }) => {
       },
       {
         onSuccess: async (data) => {
-          if (data?.accessToken) {
-            await setTokens({
-              accessToken: data.accessToken,
-              refreshToken: data.refreshToken,
-            });
-            api.defaults.headers.Authorization = `Bearer ${data.accessToken}`;
-          }
-
-          // 백엔드에서 최종 UserDto를 내려준다고 가정하고 전역 상태에 저장
           const userDto = data?.user ?? data;
-          if (userDto) {
-            await setUser(userDto);
-          }
-
           navigation.navigate("SignupComplete", {
             signup: {
               ...(signupData || {}),
@@ -92,25 +140,51 @@ const SignupGenderAgeScreen = ({ navigation, route }) => {
                 userDto?.favoriteTeamName ?? route?.params?.favoriteTeamLabel,
             },
           });
+
+          if (data?.accessToken) {
+            setTokens({
+              accessToken: data.accessToken,
+              refreshToken: data.refreshToken,
+            });
+            api.defaults.headers.Authorization = `Bearer ${data.accessToken}`;
+          }
+
+          // 백엔드에서 최종 UserDto를 내려준다고 가정하고 전역 상태에 저장
+          if (userDto) {
+            setUser(userDto);
+          }
+          setDraftSignupStep("COMPLETED");
         },
-        onError: (err) => {
+        onError: async (err) => {
           console.log("회원가입 완료 mutation 에러: ", err);
+          if (!isSignupStepMismatchError(err)) {
+            return;
+          }
+          try {
+            const status = await signupStatusMutation.mutateAsync();
+            applySignupStatusToDraft(status);
+            navigateFromSignupStatus(status, navigation);
+          } catch (e2) {
+            console.warn("[signup/status] recovery failed", e2);
+          }
         },
       },
     );
   };
 
   const handleNext = async () => {
+    if (isSubmitPending) return;
     // 다음 버튼(나이 입력 완료) 눌렀을 때
-    await submitSignup({
+    submitSignup({
       genderValue: gender, // 선택
       ageValue: age ? Number(age) : null, // 선택
     });
   };
 
   const handleSkip = async () => {
+    if (isSubmitPending) return;
     // 건너뛰기 눌렀을 때 (성별/나이 둘 다 null로 처리)
-    await submitSignup({
+    submitSignup({
       genderValue: null,
       ageValue: null,
     });
@@ -211,23 +285,31 @@ const SignupGenderAgeScreen = ({ navigation, route }) => {
             <View style={styles.floatingBottomArea}>
               {isNextEnabled && (
                 <TouchableOpacity
-                  style={styles.nextButton}
-                  activeOpacity={0.85}
+                  style={[
+                    styles.nextButton,
+                    isSubmitPending && styles.nextButtonDisabled,
+                  ]}
+                  activeOpacity={isSubmitPending ? 1 : 0.85}
+                  disabled={isSubmitPending}
                   onPress={handleNext}
                 >
-                  <AppText variant="heading" className="text-[#111111]">
-                    다음
+                  <AppText variant="heading" style={styles.nextButtonText}>
+                    {isSubmitPending ? "처리 중..." : "다음"}
                   </AppText>
                 </TouchableOpacity>
               )}
 
               <TouchableOpacity
-                style={styles.skipButton}
-                activeOpacity={0.8}
+                style={[
+                  styles.skipButton,
+                  isSubmitPending && styles.skipButtonDisabled,
+                ]}
+                activeOpacity={isSubmitPending ? 1 : 0.8}
+                disabled={isSubmitPending}
                 onPress={handleSkip}
               >
-                <AppText variant="heading" className="text-[#FFFFFF]">
-                  건너뛰기
+                <AppText variant="heading" style={styles.skipButtonText}>
+                  {isSubmitPending ? "처리 중..." : "건너뛰기"}
                 </AppText>
               </TouchableOpacity>
             </View>
@@ -236,13 +318,33 @@ const SignupGenderAgeScreen = ({ navigation, route }) => {
       </SafeAreaView>
     </View>
   );
-};
+}
 
-export default SignupGenderAgeScreen;
+export default function SignupGenderAgeScreen(props) {
+  const draftHydrated = useSignupDraftPersistHydrated();
+  if (!draftHydrated) {
+    return (
+      <View style={styles.root}>
+        <AuthBackground />
+        <SafeAreaView
+          style={[styles.safeArea, styles.loadingFill]}
+          edges={["top", "left", "right"]}
+        >
+          <ActivityIndicator color="#FFFFFF" size="large" />
+        </SafeAreaView>
+      </View>
+    );
+  }
+  return <SignupGenderAgeScreenBody {...props} />;
+}
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000000" },
   safeArea: { flex: 1, backgroundColor: "transparent" },
+  loadingFill: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
   container: {
     flex: 1,
   },
@@ -276,6 +378,7 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.6)",
     alignSelf: "flex-end",
     paddingBlock: 7,
+    lineHeight: 18,
   },
 
   /* Gender */
@@ -296,6 +399,7 @@ const styles = StyleSheet.create({
   },
   genderText: {
     color: "rgba(255,255,255,0.6)",
+    lineHeight: 25,
   },
 
   genderSelected: {
@@ -305,6 +409,7 @@ const styles = StyleSheet.create({
   },
   genderTextSelected: {
     color: "#8BC45A",
+    lineHeight: 25,
   },
 
   /* Age */
@@ -336,11 +441,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
+  nextButtonDisabled: {
+    opacity: 0.65,
+  },
   skipButton: {
     height: 52,
     borderRadius: 12,
     backgroundColor: "#232323",
     justifyContent: "center",
     alignItems: "center",
+  },
+  skipButtonDisabled: {
+    opacity: 0.65,
+  },
+
+  nextButtonText: {
+    color: "#ffffff",
+    lineHeight: 25,
+  },
+  skipButtonText: {
+    color: "#FFFFFF",
+    lineHeight: 25,
   },
 });

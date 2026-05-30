@@ -111,6 +111,7 @@ const PostDetailScreen = ({ route, navigation }) => {
     data: detail,
     isFetched: isPostDetailFetched,
     isError: isPostDetailError,
+    isFetching: isPostDetailFetching,
     refetch: refetchPostDetail,
   } = usePostDetailQuery(postId, {
     refetchInterval: isFocused ? POST_DETAIL_REFETCH_MS : false,
@@ -536,6 +537,9 @@ const PostDetailScreen = ({ route, navigation }) => {
   };
 
   const handleSubmitComment = (content) => {
+    if (createCommentMutation.isPending || updateCommentMutation.isPending) {
+      return;
+    }
     if (!content.trim()) return;
 
     // edit 모드면 PUT /community/comments/{commentId}
@@ -644,6 +648,7 @@ const PostDetailScreen = ({ route, navigation }) => {
         <FetchStateView
           style={{ flex: 1 }}
           isError
+          isFetching={isPostDetailFetching}
           onRetry={() => refetchPostDetail()}
         />
       </SafeAreaView>
@@ -842,6 +847,7 @@ const PostDetailScreen = ({ route, navigation }) => {
               currentUserId={currentUser?.id}
               pressedThread={pressedThread}
               onToggleCommentLike={(commentId) => {
+                if (toggleCommentLikeMutation.isPending) return;
                 toggleCommentLikeMutation.mutate(
                   { commentId },
                   {
@@ -884,6 +890,9 @@ const PostDetailScreen = ({ route, navigation }) => {
         </ScrollView>
         <CommentInput
           onSubmit={handleSubmitComment}
+          submitBusy={
+            createCommentMutation.isPending || updateCommentMutation.isPending
+          }
           replyTarget={replyTarget}
           cancelReply={() => setReplyTarget(null)}
           editTarget={editTarget}

@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useMemo } from "react";
 import LoginScreen from "@features/auth/screens/Login/LoginScreen";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -11,30 +11,107 @@ import TermsTosDetailScreen from "../../features/auth/screens/TermsDetail/TermsT
 import TermsPrivacyRequiredDetailScreen from "../../features/auth/screens/TermsDetail/TermsPrivacyRequiredDetailScreen";
 import SignupCompleteScreen from "../../features/auth/screens/SignupComplete/SignupCompleteScreen";
 import { consumePendingAuthResume } from "../../shared/auth/pendingAuthResume";
+import {
+  hasAuthResumeResetAlreadyApplied,
+  markAuthResumeResetApplied,
+} from "../../shared/auth/authResumeResetGuard";
 import { buildRootResetForAuthNestedResume } from "../../shared/auth/signupResumeStack";
-import { hydrateSignupDraftFromStorage } from "../../features/auth/stores/useSignupDraftStore";
+import { rootNavigationRef } from "./rootNavigation";
 
 const Stack = createNativeStackNavigator();
+
+const VALID_AUTH_RESUME_SCREEN_NAMES = new Set([
+  "Login",
+  "SocialSignup",
+  "TermsDetail",
+  "TermsTosDetail",
+  "TermsPrivacyRequiredDetail",
+  "SignupNickname",
+  "SignupFavoriteTeam",
+  "SignupGenderAge",
+  "SignupComplete",
+]);
+
+function coerceResumeForAuthStack(resume) {
+  if (!resume || typeof resume?.name !== "string") return null;
+  const name = resume.name.trim();
+  if (!VALID_AUTH_RESUME_SCREEN_NAMES.has(name)) {
+    return { name: "Login", params: {} };
+  }
+  if (resume.params != null && typeof resume.params === "object") {
+    return { name, params: resume.params };
+  }
+  return { name };
+}
+
+/**
+ * 레이아웃 직후 바로 reset하면 컨테이너/네이티브 스택이 아직 준비되지 않은 경우가 있어
+ * InteractionManager + rAF로 한 틱 미루고, root ref가 준비된 뒤 dispatch
+ *
+ * @param {object} [options]
+ * @param {() => void} [options.onBeforeDispatch] — navigation.dispatch 직전
+ * @param {() => void} [options.onDone] — dispatch 이후 finally
+ * @param {() => boolean} [options.shouldSkip] — true면 dispatch 생략 (이펙트 cleanup 등)
+ */
+function dispatchResumeWhenReady(navigation, action, options) {
+  const { onBeforeDispatch, onDone, shouldSkip } = options ?? {};
+  let didRun = false;
+  const run = () => {
+    if (didRun) return;
+    if (shouldSkip?.()) return;
+    didRun = true;
+    try {
+      onBeforeDispatch?.();
+      navigation.dispatch(action);
+    } catch (e) {
+      console.warn("[AuthStack] resume stack dispatch failed", e);
+    } finally {
+      onDone?.();
+    }
+  };
+
+  // 준비되어 있으면 즉시 dispatch (깜빡임 최소화)
+  if (rootNavigationRef.isReady()) {
+    run();
+    return;
+  }
+
+  // 준비되지 않았으면 rAF로 한 번만 미룸
+  requestAnimationFrame(() => {
+    run();
+  });
+}
 
 const AuthStack = () => {
   const route = useRoute();
   const navigation = useNavigation();
-  const resume = route.params?.resume ?? null;
+  const rawResume = route.params?.resume ?? null;
+  const resume = useMemo(
+    () => (rawResume == null ? null : coerceResumeForAuthStack(rawResume)),
+    [rawResume],
+  );
   const authErrorMessage = route.params?.authErrorMessage ?? null;
-
-  const didApplyResumeStack = useRef(false);
 
   useEffect(() => {
     consumePendingAuthResume();
-    hydrateSignupDraftFromStorage();
   }, []);
 
   useLayoutEffect(() => {
-    if (didApplyResumeStack.current || !resume) return;
+    if (!resume) return;
+    // TermsDetail은 reset 없이 initialRouteName으로 충분 (불필요한 전환 방지)
+    if (resume?.name === "TermsDetail") return;
+    if (hasAuthResumeResetAlreadyApplied(resume)) return;
+    if (!route.params?.resume) return;
     const action = buildRootResetForAuthNestedResume(resume);
     if (!action) return;
-    didApplyResumeStack.current = true;
-    navigation.dispatch(action);
+    markAuthResumeResetApplied(resume);
+    let cancelled = false;
+    dispatchResumeWhenReady(navigation, action, {
+      shouldSkip: () => cancelled,
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [resume, navigation]);
 
   const initialRouteName = resume?.name ?? "Login";

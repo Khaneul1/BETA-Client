@@ -5,30 +5,41 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import SplashScreen from "@app/SplashScreen";
 import CommunityStack from "./CommunityStack";
 import SearchScreen from "@features/search/screens/SearchScreen";
-import { bootstrapSession } from "../../shared/services/sessionBootstrap";
+import {
+  bootstrapSession,
+  getBootstrapAuthSignupStartFallback,
+} from "../../shared/services/sessionBootstrap";
+import { useSignupDraftStore } from "../../features/auth/stores/useSignupDraftStore";
 
 const Stack = createNativeStackNavigator();
+
+const SIGNUP_DRAFT_HYDRATION_WAIT_RESUME_ROUTES = new Set([
+  "SocialSignup",
+  "SignupFavoriteTeam",
+  "SignupGenderAge",
+  "TermsDetail",
+  "SignupNickname",
+]);
 
 const RootNavigator = () => {
   const [boot, setBoot] = useState(null);
   /** 세션 준비 후 SplashScreen에서 BETA 로고 페이드아웃이 끝나면 true */
   const [splashDismissed, setSplashDismissed] = useState(false);
 
+  const [draftHydrated, setDraftHydrated] = useState(() =>
+    useSignupDraftStore.persist.hasHydrated(),
+  );
+  const [hydrationWaitTimedOut, setHydrationWaitTimedOut] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
-    const MIN_SPLASH_MS = 1200;
-
     (async () => {
       try {
-        const [result] = await Promise.all([
-          bootstrapSession(),
-          new Promise((r) => setTimeout(r, MIN_SPLASH_MS)),
-        ]);
+        const result = await bootstrapSession();
         if (!cancelled) setBoot(result);
       } catch (e) {
         console.warn("[bootstrapSession]", e);
-        if (!cancelled)
-          setBoot({ destination: "auth", authErrorMessage: null });
+        if (!cancelled) setBoot(getBootstrapAuthSignupStartFallback());
       }
     })();
     return () => {
@@ -36,23 +47,68 @@ const RootNavigator = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (draftHydrated) return;
+    let cancelled = false;
+    const unsub = useSignupDraftStore.persist.onFinishHydration(() => {
+      if (!cancelled) setDraftHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, [draftHydrated]);
+
+  const shouldWaitSignupDraftHydration =
+    boot?.destination === "auth" &&
+    boot?.resume != null &&
+    typeof boot.resume?.name === "string" &&
+    SIGNUP_DRAFT_HYDRATION_WAIT_RESUME_ROUTES.has(boot.resume.name);
+
+  useEffect(() => {
+    if (!shouldWaitSignupDraftHydration) {
+      setHydrationWaitTimedOut(false);
+      return;
+    }
+    if (draftHydrated) {
+      setHydrationWaitTimedOut(false);
+      return;
+    }
+    setHydrationWaitTimedOut(false);
+    const t = setTimeout(() => {
+      setHydrationWaitTimedOut(true);
+    }, 3000);
+    return () => {
+      clearTimeout(t);
+    };
+  }, [shouldWaitSignupDraftHydration, draftHydrated]);
+
   const onSplashExitComplete = useCallback(() => {
     setSplashDismissed(true);
   }, []);
 
   if (!splashDismissed) {
+    const canExitSplash =
+      boot != null &&
+      (!shouldWaitSignupDraftHydration ||
+        draftHydrated ||
+        hydrationWaitTimedOut);
     return (
-      <SplashScreen bootResult={boot} onExitComplete={onSplashExitComplete} />
+      <SplashScreen
+        bootResult={canExitSplash ? boot : null}
+        onExitComplete={onSplashExitComplete}
+      />
     );
   }
 
-  const initialRouteName = boot.destination === "main" ? "Main" : "Auth";
+  const safeBoot = boot ?? getBootstrapAuthSignupStartFallback();
+  const initialRouteName = safeBoot?.destination === "main" ? "Main" : "Auth";
 
   const authInitialParams =
-    boot.destination === "auth"
+    safeBoot?.destination === "auth"
       ? {
-          resume: boot.resume ?? null,
-          authErrorMessage: boot.authErrorMessage ?? null,
+          resume: safeBoot?.resume ?? null,
+          authErrorMessage: safeBoot?.authErrorMessage ?? null,
         }
       : undefined;
 

@@ -1,11 +1,5 @@
-import React, { useEffect, useRef } from "react";
-import {
-  Platform,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import Animated, {
@@ -23,30 +17,50 @@ const PHASE1_LOCATIONS = [0, 0.35, 0.72, 1];
 const PHASE2_GRADIENT = ["#151515", "#121212", "#0C0C0C", "#080808"];
 const PHASE2_LOCATIONS = [0, 0.4, 0.78, 1];
 
-const LOGO_FADE_MS = 420;
+const LOGO_FADE_MS = 200;
+const MIN_SPLASH_TOTAL_MS = 1500;
 
 /**
  * @param {object | null} props.bootResult — bootstrapSession 결과(null이면 대기 중)
  * @param {() => void} props.onExitComplete — 로고 페이드아웃 후 메인/인증 전환
  */
 const SplashScreen = ({ bootResult = null, onExitComplete }) => {
-  const { width: winW } = useWindowDimensions();
-  const w = winW || Dimensions.get("window").width;
-
-  /** 0 = 첫 화면, 1 = 두 번째 화면 (800ms 후 400ms linear dissolve) */
   const phase = useSharedValue(0);
   const logoOpacity = useSharedValue(1);
   const exitStartedRef = useRef(false);
+  const startedAtRef = useRef(Date.now());
+  const [phase2Ready, setPhase2Ready] = useState(false);
+  const [minTimeReady, setMinTimeReady] = useState(false);
 
   useEffect(() => {
+    startedAtRef.current = Date.now();
+    setPhase2Ready(false);
+    setMinTimeReady(false);
+
+    const t = setTimeout(() => {
+      setMinTimeReady(true);
+    }, MIN_SPLASH_TOTAL_MS);
+
     phase.value = withDelay(
       800,
-      withTiming(1, { duration: 400, easing: Easing.linear }),
+      withTiming(1, { duration: 400, easing: Easing.linear }, (finished) => {
+        if (finished === true) {
+          runOnJS(setPhase2Ready)(true);
+        }
+      }),
     );
+
+    return () => {
+      clearTimeout(t);
+    };
   }, [phase]);
 
+  const canStartExit = useMemo(() => {
+    return bootResult != null && phase2Ready && minTimeReady;
+  }, [bootResult, phase2Ready, minTimeReady]);
+
   useEffect(() => {
-    if (bootResult == null || exitStartedRef.current) return;
+    if (!canStartExit || exitStartedRef.current) return;
     exitStartedRef.current = true;
     logoOpacity.value = withTiming(
       0,
@@ -59,7 +73,7 @@ const SplashScreen = ({ bootResult = null, onExitComplete }) => {
         runOnJS(onExitComplete)();
       },
     );
-  }, [bootResult, logoOpacity, onExitComplete]);
+  }, [canStartExit, logoOpacity, onExitComplete]);
 
   const phase1Style = useAnimatedStyle(() => ({
     opacity: 1 - phase.value,

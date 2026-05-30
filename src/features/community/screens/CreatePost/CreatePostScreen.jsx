@@ -29,7 +29,10 @@ import CameraIcon from "../../../community/assets/svg/CommunityPost/camera.svg";
 import GalleryIcon from "../../../community/assets/svg/CommunityPost/image.svg";
 import DropDownIcon from "../../assets/svg/CommunityPost/dropDown.svg";
 import { useUserStore } from "../../../../shared/store/userStore";
-import { TEAM_DATA } from "../../../../shared/constants/teams";
+import {
+  TEAM_DATA,
+  getFeedProfileIconSize,
+} from "../../../../shared/constants/teams";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system";
@@ -877,7 +880,10 @@ const CreatePostScreen = () => {
     if (isEditMode) {
       const formData = new FormData();
       formData.append("content", contentForUpload);
-     
+      acceptedHashTags.forEach((tag) => {
+        formData.append("hashtags", tag);
+      });
+
       deletedImageIds.forEach((id) => {
         formData.append("deletedImageIds", String(id));
       });
@@ -891,8 +897,8 @@ const CreatePostScreen = () => {
           onSuccess: async () => {
             pendingCameraDraftForCreatePost = null;
             invalidateCommunityPostLists(queryClient);
-            // 수정 직후 바로 상세 화면으로 돌아가면, 기존 캐시가 잠깐/계속 보일 수 있어
-            // 상세 쿼리를 즉시 refetch 완료한 뒤 돌아가도록 보장한다.
+            // 수정 직후 바로 상세 화면으로 돌아가면 기존 캐시가 잠깐/계속 보일 수 있어
+            // 상세 쿼리를 즉시 refetch 완료한 뒤 돌아가도록 보장
             const pid = editPost?.postId;
             if (pid != null) {
               await queryClient.invalidateQueries({
@@ -1166,7 +1172,10 @@ const CreatePostScreen = () => {
               style={styles.avatarCircle}
             >
               {ProfileIcon ? (
-                <ProfileIcon width={28} height={28} />
+                <ProfileIcon
+                  width={getFeedProfileIconSize(author?.favoriteTeamCode, 26)}
+                  height={getFeedProfileIconSize(author?.favoriteTeamCode, 26)}
+                />
               ) : (
                 <AppText style={{ color: "#FFF" }}>
                   {(author?.nickname?.trim()?.[0] ?? "U").toUpperCase()}

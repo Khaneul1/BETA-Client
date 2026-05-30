@@ -1,5 +1,12 @@
 // src/features/auth/screens/SignupNickname/SignupNicknameScreen.jsx
-import React, { useMemo, useEffect } from "react";
+import React, {
+  useMemo,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useRef,
+  useCallback,
+} from "react";
 import {
   View,
   Text,
@@ -11,23 +18,88 @@ import {
   Platform,
   ScrollView,
   Dimensions,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 
 import AuthBackground from "../../components/AuthBackground";
 import SignupCheckedInput from "../../components/SignupCheckedInput";
 import SignupProgressHeader from "../../components/SignupProgressHeader";
 import { useCheckedField } from "../../hooks/useCheckedField";
+import { useSignupDraftPersistHydrated } from "../../hooks/useSignupDraftPersistHydrated";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNicknameCheckMutation } from "../../services/nicknameCheckMutation";
+import { useFocusEffect } from "@react-navigation/native";
+import { checkNicknameDuplicateRequest } from "../../services/nicknameCheckMutation";
+import { AppText } from "../../../../shared/theme/components/AppText";
 import { useStepBack } from "../../hooks/useStepBack";
 import { useSignupDraftStore } from "../../stores/useSignupDraftStore";
+import { useSignupProfileMutation } from "../../services/signupProfileMutation";
+import { useSignupStatusMutation } from "../../services/signupStatusMutation";
+import { applySignupStatusToDraft } from "../../../../shared/auth/applySignupStatusToDraft";
+import { navigateFromSignupStatus } from "../../../../shared/auth/navigateFromSignupStatus";
 
 const { height } = Dimensions.get("window");
 
-const SignupNicknameScreen = ({ navigation, route }) => {
-  const signup = route?.params?.signup ?? {}; // ? { signupType, email, terms ... }
-  const { mutateAsync: checkNicknameDuplicate } = useNicknameCheckMutation();
-  const handleBack = useStepBack("Login");
+function signupNicknameCheckErrorMessage(error) {
+  if (error?.message === "NO_ACCESS_TOKEN") {
+    return "로그인 정보가 없습니다. 다시 로그인해 주세요.";
+  }
+  if (error?.message === "INVALID_NICKNAME_CHECK_RESPONSE") {
+    return "서버 응답을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  const raw = error?.response?.data;
+  if (typeof raw === "string") return raw;
+  if (typeof raw?.message === "string") return raw.message;
+  return "닉네임 확인에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
+const FROZEN_EMPTY_CHECKED_FIELD = {
+  value: "",
+  error: "",
+  touched: false,
+  isAvailable: false,
+  isChecking: false,
+  status: "idle",
+  handleChange: () => {},
+  handleBlur: () => {},
+  handleCheck: async () => {},
+};
+
+function normalizeSignupParams(signup) {
+  if (signup == null || typeof signup !== "object" || Array.isArray(signup)) {
+    return {};
+  }
+  return signup;
+}
+
+function emailStringFromSignup(signup) {
+  const s = normalizeSignupParams(signup);
+  const e = s?.email;
+  return typeof e === "string" && e.trim().length > 0 ? e.trim() : "";
+}
+
+/**
+ * persist rehydrate 완료 후에만 mount — useCheckedField 초기값이 복원된 draft와 일치
+ */
+function SignupNicknameHydratedBody({ navigation, route, handleBack }) {
+  const routeParams = route?.params ?? {};
+
+  const mountedRef = useRef(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const signup = normalizeSignupParams(routeParams?.signup);
+  const draftEmail = useSignupDraftStore((s) => s.email);
+  const draftEmailTrim =
+    typeof draftEmail === "string" ? draftEmail.trim() : "";
+  const paramEmailTrim = emailStringFromSignup(signup);
+  const readonlyEmail = paramEmailTrim || draftEmailTrim;
 
   const draftNickname = useSignupDraftStore((s) => s.nickname);
   const draftNicknameChecked = useSignupDraftStore((s) => s.nicknameChecked);
@@ -35,42 +107,155 @@ const SignupNicknameScreen = ({ navigation, route }) => {
   const setDraftNicknameChecked = useSignupDraftStore(
     (s) => s.setNicknameChecked,
   );
+  const hydrateDraftNickname = useSignupDraftStore((s) => s.hydrateNickname);
+  const setDraftEmail = useSignupDraftStore((s) => s.setEmail);
+  const setDraftTeamList = useSignupDraftStore((s) => s.setTeamList);
+  const setDraftSignupStep = useSignupDraftStore((s) => s.setSignupStep);
+
+  const signupProfileMutation = useSignupProfileMutation();
+  const signupStatusMutation = useSignupStatusMutation();
+
+  function isSignupStepMismatchError(error) {
+    const raw = error?.response?.data;
+    const code =
+      raw?.code ?? raw?.errorCode ?? raw?.errCode ?? raw?.error?.code ?? null;
+    if (code != null && String(code).trim().toUpperCase() === "USER008") {
+      return true;
+    }
+    const message =
+      typeof raw === "string"
+        ? raw
+        : typeof raw?.message === "string"
+          ? raw.message
+          : typeof error?.message === "string"
+            ? error.message
+            : "";
+    return (
+      typeof message === "string" && message.includes("잘못된 회원가입 단계")
+    );
+  }
 
   const nicknameRegex = /^[가-힣a-zA-Z0-9._]+$/;
 
-  const validateNickname = (value) => {
+  const validateNickname = useCallback((value) => {
     if (!value) return "닉네임을 입력해주세요.";
 
     const trimmed = value.trim();
 
-    // 길이: 1~13
     if (trimmed.length < 1 || trimmed.length > 13) {
       return "닉네임은 1~13자 이내로 입력해주세요.";
     }
 
-    // 허용 문자
     if (!nicknameRegex.test(trimmed)) {
       return "한글, 영문, 숫자, _, . 만 사용할 수 있어요.";
     }
 
     return "";
-  };
+  }, []);
 
   const nicknameField = useCheckedField({
     initialValue: draftNickname ?? "",
-    initialTouched: !!(draftNickname ?? ""),
+    initialTouched: !!(draftNickname ?? "").trim(),
     initialIsAvailable: !!draftNicknameChecked,
     validate: validateNickname,
     checkAvailability: async (trimmedNickname) => {
-      const isDuplicate = await checkNicknameDuplicate(trimmedNickname);
+      const isDuplicate = await checkNicknameDuplicateRequest(trimmedNickname);
       const available = !isDuplicate;
       setDraftNicknameChecked(available);
-      return available; // useCheckedField 쪽에서는 boolean만 쓰면 됨
+      return available;
     },
   });
 
+  const nicknameFieldRef = useRef(nicknameField);
+  nicknameFieldRef.current = nicknameField;
+
+  const restoreNicknameFromDraftAndRoute = useCallback(() => {
+    const d = useSignupDraftStore.getState();
+    const rawSignup = routeParams?.signup;
+    const signupObj =
+      rawSignup != null &&
+      typeof rawSignup === "object" &&
+      !Array.isArray(rawSignup)
+        ? rawSignup
+        : {};
+
+    const paramEmail =
+      typeof signupObj.email === "string" ? signupObj.email.trim() : "";
+    if (paramEmail) {
+      d.setEmail(paramEmail);
+    }
+
+    const paramNick =
+      typeof signupObj.nickname === "string" ? signupObj.nickname.trim() : "";
+    const draftNick = String(d.nickname ?? "").trim();
+    const restored = draftNick || paramNick;
+
+    const verified =
+      !!restored &&
+      ((draftNick === restored && !!d.nicknameChecked) ||
+        (!!paramNick && restored === paramNick && !draftNick));
+
+    const f = nicknameFieldRef.current;
+    if (!restored) {
+      const current = String(f.value ?? "").trim();
+      if (current) {
+        return;
+      }
+      f.setValue("");
+      f.setTouched(false);
+      f.setError("");
+      f.setIsAvailable(false);
+      return;
+    }
+
+    hydrateDraftNickname(restored, !!verified);
+
+    const dAfter = useSignupDraftStore.getState();
+    f.setValue(restored);
+    f.setTouched(!!restored);
+    f.setError("");
+    f.setIsAvailable(!!restored && !!dAfter.nicknameChecked);
+  }, [routeParams, hydrateDraftNickname]);
+
+  const didNicknameLayoutSyncRef = useRef(false);
+  /** 필드 -> draft 동기화 시 빈 초기값이 persist 닉네임을 지우지 않도록 */
+  const initialNicknameDraftSyncRef = useRef(true);
+  useLayoutEffect(() => {
+    restoreNicknameFromDraftAndRoute();
+    didNicknameLayoutSyncRef.current = true;
+  }, [restoreNicknameFromDraftAndRoute]);
+
+  useFocusEffect(
+    useCallback(() => {
+      restoreNicknameFromDraftAndRoute();
+    }, [restoreNicknameFromDraftAndRoute]),
+  );
+
   useEffect(() => {
-    setDraftNickname(nicknameField.value);
+    restoreNicknameFromDraftAndRoute();
+  }, [draftNickname, draftNicknameChecked, restoreNicknameFromDraftAndRoute]);
+
+  useEffect(() => {
+    if (readonlyEmail) setDraftEmail(readonlyEmail);
+  }, [readonlyEmail, setDraftEmail]);
+
+  useEffect(() => {
+    if (!didNicknameLayoutSyncRef.current) return;
+    const next = nicknameField.value;
+    const storeNick = useSignupDraftStore.getState().nickname ?? "";
+    if (storeNick === next) {
+      initialNicknameDraftSyncRef.current = false;
+      return;
+    }
+    if (
+      initialNicknameDraftSyncRef.current &&
+      !String(next).trim() &&
+      String(storeNick).trim()
+    ) {
+      return;
+    }
+    initialNicknameDraftSyncRef.current = false;
+    setDraftNickname(next);
   }, [nicknameField.value, setDraftNickname]);
 
   const isNextEnabled = useMemo(() => {
@@ -79,21 +264,176 @@ const SignupNicknameScreen = ({ navigation, route }) => {
     );
   }, [nicknameField.value, nicknameField.error, nicknameField.isAvailable]);
 
-  const handleNext = () => {
-    if (!isNextEnabled) return;
+  const canPressNext =
+    isNextEnabled && !isSubmitting && !nicknameField.isChecking;
+
+  const handleNext = async () => {
+    if (!canPressNext) return;
 
     const nickname = nicknameField.value.trim();
-    setDraftNickname(nickname);
-    setDraftNicknameChecked(true);
+    const draftSnap = useSignupDraftStore.getState();
+    if (
+      !draftSnap.nicknameChecked ||
+      String(draftSnap.nickname ?? "").trim() !== nickname
+    ) {
+      Alert.alert("안내", "닉네임 중복확인을 완료해 주세요.");
+      return;
+    }
 
-    // 다음 단계로 이동 (즐겨찾는 팀 화면으로 이동 예시)
-    navigation.navigate("SignupFavoriteTeam", {
-      signup: {
-        ...signup,
-        nickname,
-      },
-    });
+    setIsSubmitting(true);
+    try {
+      setDraftNickname(nickname);
+      setDraftNicknameChecked(true);
+
+      let profileRes;
+      try {
+        profileRes = await signupProfileMutation.mutateAsync({ nickname });
+      } catch (e) {
+        if (!mountedRef.current) return;
+        if (isSignupStepMismatchError(e)) {
+          try {
+            const status = await signupStatusMutation.mutateAsync();
+            applySignupStatusToDraft(status);
+            navigateFromSignupStatus(status, navigation);
+            return;
+          } catch (e2) {
+            console.warn("[signup/status] recovery failed", e2);
+            Alert.alert(
+              "안내",
+              "회원가입 상태를 확인하지 못했습니다. 다시 시도하거나 앱을 재실행해 주세요.",
+            );
+            return;
+          }
+        }
+        Alert.alert("안내", signupNicknameCheckErrorMessage(e));
+        return;
+      }
+
+      if (profileRes?.teamList && Array.isArray(profileRes.teamList)) {
+        setDraftTeamList(profileRes.teamList);
+      }
+      if (profileRes?.signupStep) {
+        setDraftSignupStep(profileRes.signupStep);
+      }
+
+      const rawSignup = routeParams?.signup;
+      const baseSignup =
+        rawSignup != null &&
+        typeof rawSignup === "object" &&
+        !Array.isArray(rawSignup)
+          ? { ...rawSignup }
+          : {};
+      const safeEmail =
+        typeof baseSignup.email === "string" ? baseSignup.email.trim() : "";
+
+      navigation.navigate("SignupFavoriteTeam", {
+        signup: {
+          ...baseSignup,
+          email: safeEmail,
+          nickname,
+        },
+      });
+    } catch (e) {
+      if (!mountedRef.current) return;
+      Alert.alert("안내", signupNicknameCheckErrorMessage(e));
+    } finally {
+      if (mountedRef.current) {
+        setIsSubmitting(false);
+      }
+    }
   };
+
+  return (
+    <>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.inner}>
+          <SignupProgressHeader currentStep={1} onBack={handleBack} />
+
+          <View style={styles.section}>
+            <AppText variant="displayTitle" style={styles.sectionTitle}>
+              회원가입 이메일
+            </AppText>
+            <AppText variant="smallRegular" style={styles.sectionDescription}>
+              * 계정 안내 및 개인정보 처리방침 변경 시 안내를 위해 사용됩니다.
+            </AppText>
+            <View style={styles.readonlyEmailBox}>
+              <AppText variant="middle" style={styles.readonlyEmailText}>
+                {readonlyEmail || "-"}
+              </AppText>
+            </View>
+          </View>
+
+          <View style={[styles.section, { marginTop: 24 }]}>
+            <Text style={styles.title}>닉네임을 입력해주세요</Text>
+          </View>
+
+          <View style={styles.formWrapper}>
+            <SignupCheckedInput
+              label={null}
+              placeholder="닉네임을 입력해주세요."
+              maxLength={13}
+              field={nicknameField}
+              buttonLabel="중복확인"
+            />
+
+            <Text style={styles.lengthText}>
+              {nicknameField.value.length}/13
+            </Text>
+          </View>
+        </View>
+      </ScrollView>
+
+      <View style={styles.floatingBottomArea}>
+        <TouchableOpacity
+          style={[
+            styles.nextButton,
+            !canPressNext && styles.nextButtonDisabled,
+          ]}
+          activeOpacity={canPressNext ? 0.8 : 1}
+          onPress={handleNext}
+          disabled={!canPressNext}
+        >
+          <Text
+            style={[
+              styles.nextButtonText,
+              !canPressNext && styles.nextButtonTextDisabled,
+            ]}
+          >
+            {isSubmitting ? "처리 중..." : "다음"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </>
+  );
+}
+
+const SignupNicknameScreen = ({ navigation, route }) => {
+  const draftHydrated = useSignupDraftPersistHydrated();
+  const handleBack = useStepBack("Login");
+  const draftEmailShell = useSignupDraftStore((s) => s.email);
+  const signupFromRoute = normalizeSignupParams(route?.params?.signup);
+  const paramShell = emailStringFromSignup(signupFromRoute);
+  const draftShellTrim =
+    typeof draftEmailShell === "string" ? draftEmailShell.trim() : "";
+  const shellEmail = paramShell || draftShellTrim;
+
+  if (!draftHydrated) {
+    return (
+      <View style={styles.root}>
+        <AuthBackground />
+        <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+          <ActivityIndicator
+            color="#FFFFFF"
+            size="large"
+            style={{ flex: 1, justifyContent: "center", alignSelf: "center" }}
+          />
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -103,56 +443,11 @@ const SignupNicknameScreen = ({ navigation, route }) => {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <AuthBackground />
-
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View style={styles.inner}>
-              <SignupProgressHeader currentStep={1} onBack={handleBack} />
-
-              {/* 타이틀 */}
-              <Text style={styles.title}>닉네임을 입력해주세요</Text>
-
-              {/* 닉네임 입력 */}
-              <View style={styles.formWrapper}>
-                <SignupCheckedInput
-                  label={null}
-                  placeholder="닉네임을 입력해주세요."
-                  maxLength={13}
-                  field={nicknameField}
-                  buttonLabel="중복확인"
-                />
-
-                {/* 글자 수 표시 */}
-                <Text style={styles.lengthText}>
-                  {nicknameField.value.length}/13
-                </Text>
-              </View>
-            </View>
-          </ScrollView>
-
-          {/* 하단 플로팅 버튼 */}
-          <View style={styles.floatingBottomArea}>
-            <TouchableOpacity
-              style={[
-                styles.nextButton,
-                !isNextEnabled && styles.nextButtonDisabled,
-              ]}
-              activeOpacity={isNextEnabled ? 0.8 : 1}
-              onPress={handleNext}
-              disabled={!isNextEnabled}
-            >
-              <Text
-                style={[
-                  styles.nextButtonText,
-                  !isNextEnabled && styles.nextButtonTextDisabled,
-                ]}
-              >
-                다음
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <SignupNicknameHydratedBody
+            navigation={navigation}
+            route={route}
+            handleBack={handleBack}
+          />
         </KeyboardAvoidingView>
       </TouchableWithoutFeedback>
     </SafeAreaView>
@@ -162,6 +457,10 @@ const SignupNicknameScreen = ({ navigation, route }) => {
 export default SignupNicknameScreen;
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
   safeArea: {
     flex: 1,
     backgroundColor: "#000000",
@@ -181,7 +480,32 @@ const styles = StyleSheet.create({
     maxWidth: 390,
     alignSelf: "center",
   },
-  // header styles moved to SignupProgressHeader
+  section: {
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    color: "#FFFFFF",
+    lineHeight: 32.7,
+    marginBottom: 8,
+  },
+  sectionDescription: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+    marginBottom: 12,
+    lineHeight: 15,
+  },
+  readonlyEmailBox: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(206, 206, 206, 0.34)",
+    paddingHorizontal: 14,
+    paddingVertical: 18,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+  },
+  readonlyEmailText: {
+    color: "rgba(255,255,255,0.6)",
+    lineHeight: 19,
+  },
   title: {
     fontSize: 22,
     fontWeight: "700",
@@ -193,10 +517,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   lengthText: {
-    // marginTop: 4,
     fontSize: 11,
     color: "#FFFFFF",
     textAlign: "right",
+    lineHeight: 15,
   },
   floatingBottomArea: {
     position: "absolute",
@@ -222,8 +546,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     color: "#111111",
+    lineHeight: 25,
   },
   nextButtonTextDisabled: {
     color: "rgba(255,255,255,0.45)",
+    lineHeight: 25,
   },
 });

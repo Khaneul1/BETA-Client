@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { login, unlink } from "@react-native-seoul/kakao-login";
@@ -22,7 +23,9 @@ import { getDeviceId } from "../../libs/Login/deviceUtils";
 import { useUserStore } from "../../../../shared/store/userStore";
 
 import api from "../../../../shared/libs/api";
+import { normalizeSignupStep } from "../../../../shared/services/sessionBootstrap";
 import { cancelWithdrawAccountApi } from "../../services/authSessionService";
+import { applySignupStatusToDraft } from "../../../../shared/auth/applySignupStatusToDraft";
 
 // 아이콘(svg) - 프로젝트 경로에 맞게 유지
 import BetaLogo from "@shared/assets/svg/logos/BetaLogo.svg";
@@ -58,6 +61,32 @@ function getSocialLoginErrorPayload(error) {
   };
 }
 
+function trimSignupEmail(value) {
+  if (typeof value !== "string") return "";
+  const t = value.trim();
+  return t.length > 0 ? t : "";
+}
+
+/**
+ * 회원가입 이어하기 시 네비게이션용 이메일
+ * @param {object | null | undefined} userResponse — POST /api/v1/auth/login/{provider} 의 userResponse
+ * @param {unknown} emailFromServer — GET /api/v1/auth/signup/status 의 email
+ */
+function resolveSignupFlowEmailFromLogin(userResponse, emailFromServer) {
+  const fromStatus = trimSignupEmail(
+    emailFromServer == null ? "" : String(emailFromServer),
+  );
+  if (fromStatus) return fromStatus;
+  const top = trimSignupEmail(userResponse?.email);
+  if (top) return top;
+  const nested = userResponse?.user;
+  if (nested && typeof nested === "object") {
+    const fromUser = trimSignupEmail(nested.email);
+    if (fromUser) return fromUser;
+  }
+  return "";
+}
+
 const LoginScreen = ({ navigation, route }) => {
   const [isSocialLoading, setIsSocialLoading] = useState(false);
   const socialLoginMutation = useSocialLoginMutation();
@@ -74,14 +103,17 @@ const LoginScreen = ({ navigation, route }) => {
 
   const showApiAuthError = (error, title, fallbackMessage) => {
     const msg =
-      getSocialLoginErrorPayload(error).message ?? error?.message ?? fallbackMessage;
+      getSocialLoginErrorPayload(error).message ??
+      error?.message ??
+      fallbackMessage;
     Alert.alert(title, msg);
   };
 
   const showDuplicateEmailAlert = (error) => {
     const payload = getSocialLoginErrorPayload(error);
     const msg =
-      payload.message ?? "이미 가입된 이메일입니다. 소셜 로그인을 확인해 주세요.";
+      payload.message ??
+      "이미 가입된 이메일입니다. 소셜 로그인을 확인해 주세요.";
     Alert.alert("로그인 안내", msg);
     setIsSocialLoading(false);
   };
@@ -110,7 +142,8 @@ const LoginScreen = ({ navigation, route }) => {
       const scheduledDeletionAt = baseUser?.scheduledDeletionAt ?? null;
 
       const scheduled =
-        scheduledDeletionAt && !Number.isNaN(new Date(scheduledDeletionAt).getTime())
+        scheduledDeletionAt &&
+        !Number.isNaN(new Date(scheduledDeletionAt).getTime())
           ? new Date(scheduledDeletionAt)
           : null;
 
@@ -139,7 +172,7 @@ const LoginScreen = ({ navigation, route }) => {
         }
       }
 
-      // 기존 회원 → 유저 정보 전역 저장 후 메인으로
+      // 기존 회원 -> 유저 정보 전역 저장 후 메인으로
       if (baseUser) {
         // 탈퇴 취소가 성공했더라도 응답이 업데이트되지 않는 케이스가 있어, 클라이언트 표시는 정상 상태로 보정
         const normalizedUser =
@@ -155,10 +188,9 @@ const LoginScreen = ({ navigation, route }) => {
     // 회원가입 미완료
     // - SOCIAL_AUTHENTICATED 또는 단계 미표시: 약관만 필요 -> GET /signup/status 생략 가능
     // - 그 외(CONSENT_AGREED, PROFILE_COMPLETED, TEAM_SELECTED 등): 해당 화면 구성용
-    //   email/teamList 등은 반드시 GET /api/v1/auth/signup/status 로 조회
-    let signupStep = userResponse.signupStep;
+    //   email/teamList 등은 필요 시 GET /api/v1/auth/signup/status 로 조회 (teamList는 draft에 저장해 화면에서 사용)
+    let signupStep = normalizeSignupStep(userResponse.signupStep);
     let emailFromServer = null;
-    let teamListFromServer = null;
 
     const canSkipSignupStatus =
       signupStep == null || signupStep === "SOCIAL_AUTHENTICATED";
@@ -168,11 +200,18 @@ const LoginScreen = ({ navigation, route }) => {
         const status = await fetchSignupStatusWithToken(
           userResponse.accessToken,
         );
-        if (status?.signupStep) {
-          signupStep = status.signupStep;
+        try {
+          applySignupStatusToDraft(status);
+        } catch (e) {
+          console.warn("[login] applySignupStatusToDraft failed", e);
+        }
+        if (status?.signupStep != null) {
+          const normalized = normalizeSignupStep(status.signupStep);
+          if (normalized) {
+            signupStep = normalized;
+          }
         }
         emailFromServer = status?.email ?? null;
-        teamListFromServer = status?.teamList ?? null;
       } catch (e) {
         console.log("signup/status 조회 실패:", e);
         Alert.alert(
@@ -192,22 +231,36 @@ const LoginScreen = ({ navigation, route }) => {
         // 1단계: 이메일(읽기 전용) + 닉네임
         navigation.navigate("SocialSignup", {
           signup: {
-            email: emailFromServer || userResponse.email,
+            email: resolveSignupFlowEmailFromLogin(
+              userResponse,
+              emailFromServer,
+            ),
           },
         });
         break;
 
       case "PROFILE_COMPLETED":
-        // 2단계: 팀 선택 (teamList 필요)
+        // 2단계: 팀 선택 — 목록은 SignupFavoriteTeam에서 GET /signup/status 로 로드
         navigation.navigate("SignupFavoriteTeam", {
-          signup: {},
-          teamList: teamListFromServer || [],
+          signup: {
+            email: resolveSignupFlowEmailFromLogin(
+              userResponse,
+              emailFromServer,
+            ),
+          },
         });
         break;
 
       case "TEAM_SELECTED":
-        // 3단계: 성별/나이 입력
-        navigation.navigate("SignupGenderAge", { signup: {} });
+        // 3단계: 성별/나이 입력 — getSignupResumeRoute 와 동일하게 email 전달
+        navigation.navigate("SignupGenderAge", {
+          signup: {
+            email: resolveSignupFlowEmailFromLogin(
+              userResponse,
+              emailFromServer,
+            ),
+          },
+        });
         break;
 
       default:
@@ -309,11 +362,9 @@ const LoginScreen = ({ navigation, route }) => {
         return;
       }
 
-      // console.log("카카오 토큰:", token);
       // console.log("카카오 프로필:", profile);
 
       const deviceId = await getDeviceId();
-      // console.log("deviceID: ", deviceId);
 
       socialLoginMutation.mutate(
         { provider: "KAKAO", token: token.accessToken, deviceId },
@@ -340,6 +391,7 @@ const LoginScreen = ({ navigation, route }) => {
             console.log("요청 URL:", error.config?.baseURL + error.config?.url);
 
             const payload = getSocialLoginErrorPayload(error);
+            const code = payload.code;
             if (
               error?.response?.status === 409 &&
               (payload.code === "USER006" || !!payload.message)
@@ -421,8 +473,9 @@ const LoginScreen = ({ navigation, route }) => {
         return;
       }
 
-      console.log("네이버 토큰:", token);
-      console.log("네이버 프로필:", profile);
+      // TODO: 민감정보 로그 - 추후 제거 예정
+      // console.log("네이버 토큰:", token);
+      // console.log("네이버 프로필:", profile);
 
       const deviceId = await getDeviceId();
 
@@ -495,17 +548,19 @@ const LoginScreen = ({ navigation, route }) => {
 
           {/* 하단 버튼 영역 */}
           <View style={styles.bottomArea}>
-            <TouchableOpacity
-              style={[styles.fullButton, styles.appleButton]}
-              onPress={handleAppleLogin}
-              activeOpacity={0.85}
-              disabled={isSocialLoading}
-            >
-              <AppleIcon width={20} height={20} />
-              <Text style={[styles.fullButtonText, styles.appleText]}>
-                Apple 로그인
-              </Text>
-            </TouchableOpacity>
+            {Platform.OS === "ios" ? (
+              <TouchableOpacity
+                style={[styles.fullButton, styles.appleButton]}
+                onPress={handleAppleLogin}
+                activeOpacity={0.85}
+                disabled={isSocialLoading}
+              >
+                <AppleIcon width={20} height={20} />
+                <Text style={[styles.fullButtonText, styles.appleText]}>
+                  Apple 로그인
+                </Text>
+              </TouchableOpacity>
+            ) : null}
 
             <TouchableOpacity
               style={[styles.fullButton, styles.kakaoButton]}

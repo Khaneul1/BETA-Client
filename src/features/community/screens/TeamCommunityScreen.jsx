@@ -84,7 +84,7 @@ const TeamCommunityScreen = ({ route }) => {
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       {MainIcon && (
         <View style={styles.bgLogoContainer} pointerEvents="none">
-          <MainIcon width={307} height={307} />
+          <MainIcon width={295} height={295} />
           <View style={styles.bgLogoOverlay} />
         </View>
       )}
@@ -96,6 +96,7 @@ const TeamCommunityScreen = ({ route }) => {
         style={styles.fetchArea}
         isLoading={blockingLoad}
         isError={isError}
+        isFetching={isFetching}
         onRetry={() => refetch()}
       >
         <PostList
@@ -145,7 +146,7 @@ const styles = StyleSheet.create({
   },
   bgLogoOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(2, 4, 8, 0.9)",
+    backgroundColor: "rgba(2, 4, 8, 0.7)",
   },
   container: {
     justifyContent: "center",

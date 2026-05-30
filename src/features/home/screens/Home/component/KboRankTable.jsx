@@ -2,9 +2,13 @@ import React, { useMemo } from "react";
 import { View, StyleSheet } from "react-native";
 import { AppText } from "../../../../../shared/theme/components/AppText";
 import { TEAM_DATA } from "../../../../../shared/constants/teams";
+import { getKboRankCardRabbitIcon } from "../../../../../shared/constants/kboRankCardRabbitIcons";
 import { resolveTeamKeyFromApiTeamName } from "../../../utils/kboTeamName";
 
 const LOGO_SIZE = 30;
+/** 원형 로고 슬롯 안에 맞추되 귀/모자가 잘리지 않게 약간 축소 */
+const RABBIT_ICON_W = 24;
+const RABBIT_ICON_H = 24;
 const RANK_W = 40;
 const STAT_W = 35;
 const WINRATE_W = 52;
@@ -86,6 +90,7 @@ export default function KboRankTable({
 
       {safeRows.map((row, idx) => {
         const teamKey = resolveTeamKeyFromApiTeamName(row.teamName);
+        const RabbitIcon = getKboRankCardRabbitIcon(teamKey);
         const MainIcon = teamKey ? TEAM_DATA[teamKey]?.MainIcon : null;
         const highlight = rowShouldHighlight({
           rank: row.rank,
@@ -107,7 +112,14 @@ export default function KboRankTable({
                 {row.rank}
               </AppText>
               <View style={styles.teamCell}>
-                {MainIcon ? (
+                {RabbitIcon ? (
+                  <View style={styles.logoWrapRabbit}>
+                    <RabbitIcon
+                      width={RABBIT_ICON_W}
+                      height={RABBIT_ICON_H}
+                    />
+                  </View>
+                ) : MainIcon ? (
                   <View style={styles.logoWrap}>
                     <MainIcon width={LOGO_SIZE} height={LOGO_SIZE} />
                   </View>
@@ -240,6 +252,13 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
+  },
+  logoWrapRabbit: {
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
   },
   teamNameText: {
     color: "#121212",

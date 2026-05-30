@@ -1,15 +1,24 @@
 import { useSignupDraftStore } from "@features/auth/stores/useSignupDraftStore";
+import { applySignupStatusToDraft } from "./applySignupStatusToDraft";
+import { normalizeSignupStep } from "../services/sessionBootstrap";
 
 /**
  * GET /auth/signup/status 응답 기준으로 회원가입 다음 화면으로 이동
  * @returns {boolean} 라우팅을 수행했으면 true
  */
 export function navigateFromSignupStatus(status, navigation) {
-  const step = status?.signupStep;
+  applySignupStatusToDraft(status);
+
+  const step = normalizeSignupStep(
+    status?.signupStep ?? status?.signup_step ?? null,
+  );
   const email = status?.email ?? null;
-  const teamList = status?.teamList ?? [];
   const draftSignup =
     useSignupDraftStore.getState().buildSignupParams?.() ?? {};
+
+  if (!step) {
+    return false;
+  }
 
   switch (step) {
     case "SOCIAL_AUTHENTICATED":
@@ -23,7 +32,6 @@ export function navigateFromSignupStatus(status, navigation) {
     case "PROFILE_COMPLETED":
       navigation.navigate("SignupFavoriteTeam", {
         signup: { ...draftSignup, email: email ?? draftSignup.email ?? "" },
-        teamList,
       });
       return true;
     case "TEAM_SELECTED":

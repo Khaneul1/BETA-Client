@@ -1,11 +1,17 @@
 // src/features/auth/screens/TermsDetail/TermsDetailScreen.jsx
-import React, { useCallback, useMemo, useState, useEffect } from "react";
+import React, {
+  useCallback,
+  useMemo,
+  useState,
+  useEffect,
+  useRef,
+} from "react";
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Alert,
 } from "react-native";
 import AuthBackground from "../../components/AuthBackground";
 import TermsAgreementCard from "../../components/TermsAgreementCard";
@@ -13,13 +19,25 @@ import { AppText } from "../../../../shared/theme/components/AppText";
 import { useSignupConsentMutation } from "../../services/signupConsentMutation";
 import { useSignupStatusMutation } from "../../services/signupStatusMutation";
 import { useStepBack } from "../../hooks/useStepBack";
-import { navigateFromSignupStatus } from "../../../../shared/auth/navigateFromSignupStatus";
 import { useSignupDraftStore } from "../../stores/useSignupDraftStore";
+import { applySignupStatusToDraft } from "../../../../shared/auth/applySignupStatusToDraft";
+import { navigateFromSignupStatus } from "../../../../shared/auth/navigateFromSignupStatus";
 
 const TermsDetailScreen = ({ navigation }) => {
   const draftTerms = useSignupDraftStore((s) => s.terms);
   const setDraftTerms = useSignupDraftStore((s) => s.setTerms);
   const setDraftEmail = useSignupDraftStore((s) => s.setEmail);
+  const setDraftSignupStep = useSignupDraftStore((s) => s.setSignupStep);
+
+  const [nextActionBusy, setNextActionBusy] = useState(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const [terms, setTerms] = useState({
     all: false,
@@ -35,6 +53,29 @@ const TermsDetailScreen = ({ navigation }) => {
     }
   }, [draftTerms]);
 
+  const signupConsentMutation = useSignupConsentMutation();
+  const signupStatusMutation = useSignupStatusMutation();
+
+  function isSignupStepMismatchError(error) {
+    const raw = error?.response?.data;
+    const code =
+      raw?.code ?? raw?.errorCode ?? raw?.errCode ?? raw?.error?.code ?? null;
+    if (code != null && String(code).trim().toUpperCase() === "USER008") {
+      return true;
+    }
+    const message =
+      typeof raw === "string"
+        ? raw
+        : typeof raw?.message === "string"
+          ? raw.message
+          : typeof error?.message === "string"
+            ? error.message
+            : "";
+    return (
+      typeof message === "string" && message.includes("잘못된 회원가입 단계")
+    );
+  }
+
   const handleChangeTerms = useCallback(
     (next) => {
       setTerms(next);
@@ -48,8 +89,7 @@ const TermsDetailScreen = ({ navigation }) => {
     [terms],
   );
 
-  const signupConsentMutation = useSignupConsentMutation();
-  const signupStatusMutation = useSignupStatusMutation();
+  const canPressNext = isRequiredAgreed && !nextActionBusy;
 
   const handlePressDetail = useCallback(
     (key) => {
@@ -71,6 +111,53 @@ const TermsDetailScreen = ({ navigation }) => {
     },
     [navigation],
   );
+
+  const handlePressNext = useCallback(async () => {
+    if (!canPressNext) return;
+
+    setNextActionBusy(true);
+    try {
+      const data = await signupConsentMutation.mutateAsync({
+        personalInfoRequired: true,
+        agreeMarketing: terms.privacyMarketing,
+      });
+      const email = data?.email ?? "";
+      setDraftEmail(email);
+      if (data?.signupStep) {
+        setDraftSignupStep(data.signupStep);
+      }
+      navigation.navigate("SocialSignup", {
+        signup: { email },
+      });
+    } catch (e) {
+      if (isSignupStepMismatchError(e)) {
+        try {
+          const status = await signupStatusMutation.mutateAsync();
+          applySignupStatusToDraft(status);
+          navigateFromSignupStatus(status, navigation);
+          return;
+        } catch (e2) {
+          console.warn("[signup/status] recovery failed", e2);
+          Alert.alert(
+            "안내",
+            "회원가입 상태를 확인하지 못했습니다. 다시 시도하거나 앱을 재실행해 주세요.",
+          );
+          return;
+        }
+      }
+      Alert.alert("안내", "처리 중 오류가 발생했습니다. 다시 시도해주세요.");
+    } finally {
+      if (mountedRef.current) {
+        setNextActionBusy(false);
+      }
+    }
+  }, [
+    canPressNext,
+    navigation,
+    setDraftEmail,
+    signupConsentMutation,
+    terms.privacyMarketing,
+  ]);
 
   return (
     <View style={styles.root}>
@@ -99,50 +186,20 @@ const TermsDetailScreen = ({ navigation }) => {
         <TouchableOpacity
           style={[
             styles.nextButton,
-            !isRequiredAgreed && styles.nextButtonDisabled,
+            !canPressNext && styles.nextButtonDisabled,
           ]}
-          activeOpacity={isRequiredAgreed ? 0.85 : 1}
-          disabled={!isRequiredAgreed}
-          onPress={async () => {
-            if (!isRequiredAgreed) return;
-
-            try {
-              const status = await signupStatusMutation.mutateAsync();
-              if (
-                status?.signupStep &&
-                status.signupStep !== "SOCIAL_AUTHENTICATED"
-              ) {
-                navigateFromSignupStatus(status, navigation);
-                return;
-              }
-            } catch (e) {
-              console.warn("[signup/status]", e);
-            }
-
-            signupConsentMutation.mutate(
-              {
-                personalInfoRequired: true,
-                agreeMarketing: terms.privacyMarketing,
-              },
-              {
-                onSuccess: (data) => {
-                  setDraftEmail(data?.email ?? "");
-                  navigation.navigate("SocialSignup", {
-                    signup: { email: data?.email ?? "" },
-                  });
-                },
-              },
-            );
-          }}
+          activeOpacity={canPressNext ? 0.85 : 1}
+          disabled={!canPressNext}
+          onPress={handlePressNext}
         >
           <AppText
             variant="heading"
             style={[
               styles.nextButtonText,
-              !isRequiredAgreed && styles.nextButtonTextDisabled,
+              !canPressNext && styles.nextButtonTextDisabled,
             ]}
           >
-            다음
+            {nextActionBusy ? "처리 중..." : "다음"}
           </AppText>
         </TouchableOpacity>
       </View>
@@ -168,6 +225,7 @@ const styles = StyleSheet.create({
   },
   mainText: {
     color: "#FFFFFF",
+    lineHeight: 33,
   },
   bottomArea: {
     paddingHorizontal: 20,
@@ -185,8 +243,10 @@ const styles = StyleSheet.create({
   },
   nextButtonText: {
     color: "#111111",
+    lineHeight: 25,
   },
   nextButtonTextDisabled: {
     color: "#3E3E3E",
+    lineHeight: 25,
   },
 });

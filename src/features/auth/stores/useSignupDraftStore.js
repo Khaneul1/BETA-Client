@@ -17,20 +17,40 @@ const emptyTerms = {
 export const useSignupDraftStore = create(
   persist(
     (set, get) => ({
+      /** 회원가입 진행 단계 (이탈/재진입 복원용) */
+      signupStep: null,
       email: "",
       nickname: "",
       nicknameChecked: false,
       terms: emptyTerms,
+      teamList: [],
       favoriteTeamCode: null,
       favoriteTeamLabel: null,
       gender: null, // "F" | "M" | null
       age: "", // string to match input
 
+      setSignupStep: (signupStep) =>
+        set({ signupStep: signupStep != null ? String(signupStep) : null }),
       setEmail: (email) => set({ email: email ?? "" }),
+      /** 닉네임 문자열이 바뀔 때만 중복확인 플래그 초기화(동일 문자열 재저장으로 리셋되는 레이스 방지) */
       setNickname: (nickname) =>
-        set({ nickname: nickname ?? "", nicknameChecked: false }),
+        set((state) => {
+          const next = nickname ?? "";
+          if (state.nickname === next) {
+            return { nickname: next };
+          }
+          return { nickname: next, nicknameChecked: false };
+        }),
+      /** 서버 상태/재진입 복원용 — 중복확인 플래그를 함께 설정 */
+      hydrateNickname: (nickname, nicknameChecked = true) =>
+        set({
+          nickname: nickname ?? "",
+          nicknameChecked: !!nicknameChecked,
+        }),
       setNicknameChecked: (checked) => set({ nicknameChecked: !!checked }),
       setTerms: (terms) => set({ terms: terms ?? emptyTerms }),
+      setTeamList: (teamList) =>
+        set({ teamList: Array.isArray(teamList) ? teamList : [] }),
       setFavoriteTeam: ({ code, label }) =>
         set({
           favoriteTeamCode: code ?? null,
@@ -42,23 +62,28 @@ export const useSignupDraftStore = create(
       /** navigation params로 내려보낼 signup payload */
       buildSignupParams: () => {
         const s = get();
+        const rawAge = s.age ? Number(s.age) : NaN;
+        const age =
+          Number.isFinite(rawAge) && rawAge > 0 ? rawAge : undefined;
         return {
           email: s.email ?? "",
           nickname: s.nickname ?? "",
           favoriteTeamCode: s.favoriteTeamCode ?? undefined,
           favoriteTeamLabel: s.favoriteTeamLabel ?? undefined,
           gender: s.gender ?? undefined,
-          age: s.age ? Number(s.age) : undefined,
+          age,
           terms: s.terms ?? emptyTerms,
         };
       },
 
       clearDraft: () =>
         set({
+          signupStep: null,
           email: "",
           nickname: "",
           nicknameChecked: false,
           terms: emptyTerms,
+          teamList: [],
           favoriteTeamCode: null,
           favoriteTeamLabel: null,
           gender: null,
@@ -69,10 +94,12 @@ export const useSignupDraftStore = create(
       name: "auth-signup-draft",
       storage: signupDraftJSONStorage,
       partialize: (state) => ({
+        signupStep: state.signupStep,
         email: state.email,
         nickname: state.nickname,
         nicknameChecked: state.nicknameChecked,
         terms: state.terms,
+        teamList: state.teamList,
         favoriteTeamCode: state.favoriteTeamCode,
         favoriteTeamLabel: state.favoriteTeamLabel,
         gender: state.gender,

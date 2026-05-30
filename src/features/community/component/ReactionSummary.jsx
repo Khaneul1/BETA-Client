@@ -79,6 +79,9 @@ const ReactionSummary = ({
 
 export default ReactionSummary;
 
+const SUMMARY_DOT = 22;
+const SUMMARY_DOT_COMPACT = 20;
+
 const styles = StyleSheet.create({
   reactionSummary: {
     flexDirection: "row",
@@ -100,21 +103,22 @@ const styles = StyleSheet.create({
   },
   iconStack: {
     flexDirection: "row",
+    alignItems: "center",
   },
   summaryCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 18,
+    width: SUMMARY_DOT,
+    height: SUMMARY_DOT,
+    borderRadius: SUMMARY_DOT / 2,
     justifyContent: "center",
     alignItems: "center",
     marginRight: -3,
     overflow: "hidden",
   },
   summaryCircleCompact: {
-    width: 17,
-    height: 17,
-    borderRadius: 9,
-    marginRight: -2,
+    width: SUMMARY_DOT_COMPACT,
+    height: SUMMARY_DOT_COMPACT,
+    borderRadius: SUMMARY_DOT_COMPACT / 2,
+    marginRight: -3,
   },
   totalText: {
     marginLeft: 12,
@@ -126,13 +130,11 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
   emojiInCircle: {
-    width: 22,
-    height: 22,
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 11,
+    lineHeight: SUMMARY_DOT,
+    width: SUMMARY_DOT,
     textAlign: "center",
     ...Platform.select({
-      ios: { paddingTop: 0 },
       android: {
         includeFontPadding: false,
         textAlignVertical: "center",
@@ -140,10 +142,16 @@ const styles = StyleSheet.create({
     }),
   },
   emojiInCircleCompact: {
-    width: 17,
-    height: 17,
-    fontSize: 10,
-    lineHeight: 17,
+    fontSize: 9,
+    lineHeight: SUMMARY_DOT_COMPACT,
+    width: SUMMARY_DOT_COMPACT,
+    textAlign: "center",
+    ...Platform.select({
+      android: {
+        includeFontPadding: false,
+        textAlignVertical: "center",
+      },
+    }),
   },
   commentCountText: {
     color: "#D4D4D4",

@@ -13,7 +13,10 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { AppText } from "../../../../../shared/theme/components/AppText";
-import { TEAM_DATA } from "../../../../../shared/constants/teams";
+import {
+  TEAM_DATA,
+  getFeedProfileIconSize,
+} from "../../../../../shared/constants/teams";
 import { getRelativeTimeForPostBody } from "../../../../community/screens/PostDetail/utils/relativeTime";
 import MenuIcon from "../../../../community/assets/svg/TopBar/menuIcon.svg";
 import { useUserStore } from "../../../../../shared/store/userStore";
@@ -81,12 +84,14 @@ const PopularPostCard = ({ post }) => {
             });
           },
           onDelete: () => {
+            if (deletePostMutation.isPending) return;
             Alert.alert("게시글 삭제", "이 게시글을 삭제할까요?", [
               { text: "취소", style: "cancel" },
               {
                 text: "삭제",
                 style: "destructive",
                 onPress: () => {
+                  if (deletePostMutation.isPending) return;
                   deletePostMutation.mutate(resolvedPostId, {
                     onError: (e) => {
                       if (isOfflineError(e)) return;
@@ -259,7 +264,10 @@ const PopularPostCard = ({ post }) => {
             style={styles.avatarCircle}
           >
             {ProfileIcon ? (
-              <ProfileIcon width={AVATAR_ICON} height={AVATAR_ICON} />
+              <ProfileIcon
+                width={getFeedProfileIconSize(teamCode, AVATAR_ICON)}
+                height={getFeedProfileIconSize(teamCode, AVATAR_ICON)}
+              />
             ) : (
               <AppText variant="spaced" style={styles.avatarFallback}>
                 {post.author?.nickname?.[0]}
@@ -431,10 +439,12 @@ const PopularPostCard = ({ post }) => {
             isEmotionPending={toggleEmotionMutation.isPending}
             onToggleEmotion={(_postId, emotionType) => {
               if (!emotionType) return;
+              if (toggleEmotionMutation.isPending) return;
               toggleEmotionMutation.mutate({ emotionType });
             }}
             onSelectReaction={(_, reaction) => {
               if (!reaction) return;
+              if (toggleEmotionMutation.isPending) return;
               toggleEmotionMutation.mutate({
                 emotionType: reaction.id,
               });
@@ -503,6 +513,7 @@ const styles = StyleSheet.create({
     color: "#FFF",
     fontSize: 13,
     fontWeight: "600",
+    lineHeight: 18,
   },
   profileText: {
     flex: 1,
@@ -643,7 +654,8 @@ const styles = StyleSheet.create({
   inlineHashtagText: {
     color: "#6F9D48",
     fontSize: 13,
-    fontFamily: "NotoSansKR-Medium",
+    fontFamily: "NotoSansKR_Medium",
+    lineHeight: 18,
   },
   /** 본문에 없는 서버 해시태그 한 줄 (텍스트 색만) */
   extraHashtagLine: {
@@ -651,7 +663,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 15,
     marginTop: 4,
-    fontFamily: "NotoSansKR-Medium",
+    fontFamily: "NotoSansKR_Medium",
   },
   unavailableText: {
     color: "rgba(228, 228, 228, 0.55)",
